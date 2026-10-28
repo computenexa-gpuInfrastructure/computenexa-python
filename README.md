@@ -27,6 +27,24 @@ with cnx.gpu("rtx-4090", app="datascience", hours=2) as machine:
     ...                                           # your work
 ```
 
+## From the terminal: `cnx`
+
+The package installs a command-line tool. Same API key (`CNX_API_KEY`):
+
+```bash
+cnx whoami                                        # who the key acts as, team, balance
+cnx gpus --app chat                               # GPUs for sale now, cheapest first
+cnx launch rtx-4090 --app datascience --hours 2 --project titanic --create-project
+cnx ls                                            # your running machines
+cnx ssh cnx-7f3a9c                                # connect
+cnx extend cnx-7f3a9c --hours 1
+cnx stop cnx-7f3a9c                               # unused time refunded
+cnx projects | cnx keys add "Work laptop" ~/.ssh/id_ed25519.pub | cnx usage | cnx receipts | cnx schedules
+```
+
+`cnx launch` shows the cost and asks first; add `--yes` in scripts. Add `--json` to any command for
+machine-readable output. `cnx --help` and `cnx <command> --help` list every option.
+
 ## Choose a GPU and an app
 
 ```python
@@ -71,6 +89,41 @@ cnx.list_instances(everyone=True)                 # the whole team's (owners and
 machine = cnx.get_instance("cnx-7f3a9c")
 machine.extend(hours=1)                           # same price it launched with
 machine.stop()                                    # stops if running, cancels if still starting
+```
+
+## Schedules: GPUs that start and stop by themselves
+
+```python
+from computenexa import window
+
+schedule = cnx.create_schedule(
+    "Weekdays", project=project, app="chat", gpus=["l40s", "a40"],   # first one free is used
+    timezone="America/Los_Angeles", windows=[window("mon-fri", "08:00", "18:00")],
+)
+print(schedule.next_window_start, schedule.estimated_cents_per_month / 100)
+cnx.pause_schedule(schedule, until="2026-12-01T08:00:00-08:00")
+cnx.resume_schedule(schedule)
+```
+
+## Model API machines
+
+```python
+machine = cnx.launch("l40s", app="modelapi", hours=4, model="Qwen/Qwen2.5-7B-Instruct")
+machine.wait_until_running()
+print(machine.api_base_url, machine.api_key())    # a standard chat-completions API on your own GPU
+print(cnx.model_api().base_url)                   # your team's stable address, the same on every launch
+```
+
+Other machine helpers: `machine.app_url("chat")` (a one-time signed-in link to a browser app) and
+`machine.save_project()` (save the project now).
+
+## Usage and receipts
+
+```python
+u = cnx.usage(days=30)
+print(u.sessions, u.gpu_hours, u.spend_cents / 100)
+for r in cnx.receipts(days=30):
+    print(r.instance, r.gpu, r.used_minutes, r.net_cents / 100, r.outcome)
 ```
 
 ## Account, credits and SSH keys
