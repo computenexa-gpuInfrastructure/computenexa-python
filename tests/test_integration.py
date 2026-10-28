@@ -80,8 +80,8 @@ def test_the_command_line_tool():
     env = {**os.environ, "CNX_API_KEY": KEY, "CNX_API_URL": URL}
 
     def cnx(*args):
-        r = subprocess.run([sys.executable, "-m", "computenexa.cli", *args], env=env, capture_output=True, text=True,
-                           timeout=600)
+        r = subprocess.run([sys.executable, "-m", "computenexa.cli", *args], check=False, env=env,
+                           capture_output=True, text=True, timeout=600)
         assert r.returncode == 0, r.stderr
         return r.stdout
 
