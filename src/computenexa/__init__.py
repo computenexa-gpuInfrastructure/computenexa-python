@@ -9,7 +9,7 @@
 Guide: https://app.computenexa.com/help/api · Reference: https://app.computenexa.com/help/api/reference
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 from .client import Client
 from .errors import (
@@ -29,7 +29,23 @@ from .errors import (
     ServerError,
     WaitTimeoutError,
 )
-from .models import Account, App, Catalog, Gpu, Instance, LedgerEntry, Organization, Project, SshKey
+from .models import (
+    Account,
+    App,
+    Catalog,
+    Gpu,
+    Instance,
+    LedgerEntry,
+    ModelApiAddress,
+    Organization,
+    Project,
+    Receipt,
+    Schedule,
+    ScheduleRun,
+    SshKey,
+    Usage,
+    window,
+)
 
 __all__ = [
     "APIConnectionError",
@@ -47,6 +63,7 @@ __all__ = [
     "InvalidRequestError",
     "LaunchFailedError",
     "LedgerEntry",
+    "ModelApiAddress",
     "NoCapacityError",
     "NotFoundError",
     "Organization",
@@ -54,7 +71,12 @@ __all__ = [
     "Project",
     "ProjectInUseError",
     "RateLimitError",
+    "Receipt",
+    "Schedule",
+    "ScheduleRun",
     "ServerError",
     "SshKey",
+    "Usage",
     "WaitTimeoutError",
+    "window",
 ]

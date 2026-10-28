@@ -196,6 +196,7 @@ class Instance:
     cost_so_far_cents: int
     end_reason: str | None
     startup_progress: str | None
+    api_base_url: str | None      # Model API and Voice Agent machines, while running: their API address
     raw: dict = field(repr=False)
     _client: Client | None = field(default=None, repr=False, compare=False)
 
@@ -216,7 +217,8 @@ class Instance:
                    expires_at=_time(d.get("expires_at")), time_left_seconds=d.get("time_left_seconds"),
                    charged_cents=d.get("charged_cents", 0), refunded_cents=d.get("refunded_cents", 0),
                    cost_so_far_cents=d.get("cost_so_far_cents", 0), end_reason=d.get("end_reason"),
-                   startup_progress=d.get("startup_progress"), raw=d, _client=client)
+                   startup_progress=d.get("startup_progress"), api_base_url=d.get("api_base_url"), raw=d,
+                   _client=client)
 
     def _update(self, other: Instance) -> Instance:
         for name in self.__dataclass_fields__:
@@ -259,3 +261,165 @@ class Instance:
     def stop(self) -> Instance:
         """End it now: stop if running, cancel if still starting. Unused time is refunded."""
         return self._update(self._c().stop_instance(self.id))
+
+    def api_key(self) -> str:
+        """The machine's own Model API (or Voice Agent API) key, for `api_base_url`. Only for machines you launched."""
+        return self._c().get_instance_api_key(self.id)
+
+    def app_url(self, app: str) -> str:
+        """A one-time link that opens one of the machine's browser apps (e.g. "chat", "jupyter"), signed in. Only
+        for machines you launched; the link works once, soon after it's made."""
+        return self._c().open_app_url(self.id, app)
+
+    def save_project(self) -> None:
+        """Save the machine's project now instead of at the next automatic save (within about 30 s)."""
+        self._c().save_project(self.id)
+
+
+# ---------------------------------------------------------------- 0.2.0: schedules, usage, receipts, Model API
+
+DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def window(days: str | list, start: str, end: str) -> dict:
+    """A weekly window for a schedule: `window("mon-fri", "08:00", "18:00")`, `window("sat,sun", "10:00", "14:00")`
+    or `window([0, 2, 4], "09:00", "12:00")` (Monday = 0). Times are in the schedule's time zone; start before end
+    on the same day."""
+    if isinstance(days, str):
+        picked: list[int] = []
+        for part in days.lower().replace(" ", "").split(","):
+            if "-" in part:
+                a, b = (DAYS.index(x[:3]) for x in part.split("-", 1))
+                picked += list(range(a, b + 1)) if a <= b else list(range(a, 7)) + list(range(b + 1))
+            elif part:
+                picked.append(DAYS.index(part[:3]))
+        days = picked
+    return {"days": sorted({int(d) for d in days}), "start": start, "end": end}
+
+
+@dataclass
+class ScheduleRun:
+    window_start: datetime | None
+    window_end: datetime | None
+    state: str              # pending | launched | waiting_gpu | covered | skipped | missed | failed
+    instance: str | None    # the machine it started, if any
+    attempts: int
+    last_error: str | None
+
+    @classmethod
+    def from_api(cls, d: dict) -> ScheduleRun:
+        return cls(window_start=_time(d.get("window_start")), window_end=_time(d.get("window_end")),
+                   state=d.get("state", ""), instance=d.get("instance"), attempts=d.get("attempts", 0),
+                   last_error=d.get("last_error"))
+
+
+@dataclass
+class Schedule:
+    """A GPU that starts and stops by itself on set days and hours, with a project."""
+
+    id: str
+    name: str
+    project_id: str
+    app: str
+    model: str | None
+    gpus: list[str]               # acceptable GPUs, in order of preference
+    region: str
+    timezone: str                 # IANA, e.g. "America/Los_Angeles"
+    windows: list[dict]           # [{"days": [0..6], "start": "08:00", "end": "18:00"}], Monday = 0
+    skip_dates: list[str]         # local dates, "2026-12-25"
+    lead_minutes: int             # started this long before each window
+    paused_until: datetime | None
+    next_window_start: datetime | None
+    next_window_end: datetime | None
+    hours_per_month: float
+    estimated_cents_per_month: int | None
+    runs: list[ScheduleRun]       # the latest windows, newest first
+    raw: dict = field(repr=False)
+
+    @property
+    def paused(self) -> bool:
+        return self.paused_until is not None
+
+    @classmethod
+    def from_api(cls, d: dict) -> Schedule:
+        return cls(id=str(d["id"]), name=d["name"], project_id=str(d["project_id"]), app=d["family"],
+                   model=d.get("model"), gpus=list(d.get("gpu_slugs") or []), region=d.get("region", "any"),
+                   timezone=d["timezone"], windows=list(d.get("windows") or []),
+                   skip_dates=[str(x) for x in d.get("skip_dates") or []], lead_minutes=d.get("lead_minutes", 15),
+                   paused_until=_time(d.get("paused_until")), next_window_start=_time(d.get("next_window_start")),
+                   next_window_end=_time(d.get("next_window_end")), hours_per_month=d.get("hours_per_month", 0.0),
+                   estimated_cents_per_month=d.get("estimated_cents_per_month"),
+                   runs=[ScheduleRun.from_api(r) for r in d.get("runs") or []], raw=d)
+
+
+@dataclass
+class Receipt:
+    """A finished session and what it cost."""
+
+    instance: str
+    label: str | None
+    gpu: str
+    gpu_count: int
+    app: str
+    model: str | None
+    region: str
+    requested_at: datetime | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    used_minutes: float
+    booked_minutes: int
+    charged_cents: int
+    refunded_cents: int
+    net_cents: int                # what it cost in the end
+    project: str | None
+    outcome: str
+    raw: dict = field(repr=False)
+
+    @classmethod
+    def from_api(cls, d: dict) -> Receipt:
+        return cls(instance=d["public_id"], label=d.get("label"), gpu=d["gpu"], gpu_count=d.get("gpu_count", 1),
+                   app=d.get("family", ""), model=d.get("model"), region=d.get("region", "any"),
+                   requested_at=_time(d.get("requested_at")), started_at=_time(d.get("started_at")),
+                   ended_at=_time(d.get("ended_at")), used_minutes=d.get("used_minutes", 0.0),
+                   booked_minutes=d.get("booked_minutes", 0), charged_cents=d.get("charged_cents", 0),
+                   refunded_cents=d.get("refunded_cents", 0), net_cents=d.get("net_cents", 0),
+                   project=d.get("project"), outcome=d.get("outcome", ""), raw=d)
+
+
+@dataclass
+class Usage:
+    """Your GPU use and spending over a period. Breakdowns (by_gpu, by_image, daily, projects) are lists of dicts."""
+
+    days: int
+    balance_cents: int
+    spend_cents: int
+    topups_cents: int
+    sessions: int
+    gpu_hours: float
+    by_gpu: list[dict]
+    by_image: list[dict]
+    daily: list[dict]
+    projects: list[dict]
+    raw: dict = field(repr=False)
+
+    @classmethod
+    def from_api(cls, d: dict) -> Usage:
+        return cls(days=d["days"], balance_cents=d["balance_cents"], spend_cents=d["spend_cents"],
+                   topups_cents=d["topups_cents"], sessions=d["sessions"], gpu_hours=d["gpu_hours"],
+                   by_gpu=list(d.get("by_gpu") or []), by_image=list(d.get("by_image") or []),
+                   daily=list(d.get("daily") or []), projects=list(d.get("projects") or []), raw=d)
+
+
+@dataclass
+class ModelApiAddress:
+    """Your team's stable Model API address: the same on every launch, pointing at the newest running Model API
+    machine. Its key is shown in the dashboard (owners and admins); a machine's own key: Instance.api_key()."""
+
+    handle: str
+    base_url: str                 # https://<handle>-api.computenexa-apps.com/v1
+    instance: str | None          # the machine it points at now, if any
+    raw: dict = field(repr=False)
+
+    @classmethod
+    def from_api(cls, d: dict) -> ModelApiAddress:
+        return cls(handle=d["handle"], base_url=d["base_url"], instance=d.get("instance"), raw=d)
