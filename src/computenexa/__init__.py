@@ -9,7 +9,7 @@
 Guide: https://app.computenexa.com/help/api · Reference: https://app.computenexa.com/help/api/reference
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .client import Client
 from .errors import (

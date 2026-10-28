@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+First release on PyPI (0.1.0 was never uploaded: PyPI refused its support link). Same code as 0.1.0.
+
 ## 0.1.0
 
 First release: account and balance, catalog (GPUs, apps, recommended models, image contents), launch / get / list /
