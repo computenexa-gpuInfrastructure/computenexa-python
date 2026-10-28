@@ -1,6 +1,6 @@
 [project]
 name = "computenexa"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python client for ComputeNexa: private GPUs for your business, launched and stopped from code."
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ classifiers = [
 Homepage = "https://computenexa.com"
 Documentation = "https://app.computenexa.com/help/api"
 "API reference" = "https://app.computenexa.com/help/api/reference"
-Support = "mailto:support@computenexa.com"
+Support = "https://app.computenexa.com/help"
 
 [build-system]
 requires = ["hatchling>=1.26"]
