@@ -1,0 +1,21 @@
+# Publishes to PyPI when a GitHub release is published (tag v<version>, matching pyproject.toml).
+# Uses PyPI trusted publishing: no password or token is stored anywhere. One-time setup on pypi.org
+# (account support@computenexa.com): add a trusted publisher for this repo, workflow publish.yml, environment pypi.
+name: publish
+on:
+  release:
+    types: [published]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: The tag matches the package version
+        run: test "${GITHUB_REF_NAME#v}" = "$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
+      - run: uv sync && uv run pytest -q
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
