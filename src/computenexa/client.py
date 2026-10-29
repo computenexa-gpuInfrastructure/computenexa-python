@@ -19,6 +19,7 @@ from .models import (
     STARTING,
     Account,
     Catalog,
+    Endpoint,
     Instance,
     LedgerEntry,
     ModelApiAddress,
@@ -134,7 +135,8 @@ class Client:
 
     def launch(self, gpu: str, *, app: str | None = None, image: str | None = None, minutes: int | None = None,
                hours: float | None = None, gpu_count: int = 1, region: str = "any", label: str | None = None,
-               model: str | None = None, project: Project | str | None = None) -> Instance:
+               model: str | None = None, project: Project | str | None = None,
+               endpoint: Endpoint | str | None = None) -> Instance:
         """Launch a GPU. It's charged now for the booked time; unused time is refunded when it stops early, all of
         it if it can't start.
 
@@ -142,6 +144,7 @@ class Client:
 
         `app`: "basic", "datascience", "chat", "imagegen", "modelapi" or "voice" (or `image=` an exact image slug).
         `model`: for apps that take one; left out = the recommended model for this GPU.
+        `endpoint`: serve this Endpoint (Basic, Data Science, Private Chat or Image Generation; your server on 8000).
         """
         if (app is None) == (image is None):
             raise ValueError("Give exactly one of app=... or image=...")
@@ -157,6 +160,8 @@ class Client:
             body["model"] = model
         if project is not None:
             body["project_id"] = project.id if isinstance(project, Project) else str(project)
+        if endpoint is not None:
+            body["endpoint_id"] = endpoint.id if isinstance(endpoint, Endpoint) else str(endpoint)
         return Instance.from_api(self._request("POST", "/instances", json=body), self)
 
     def get_instance(self, instance_id: str) -> Instance:
@@ -253,6 +258,41 @@ class Client:
         API machine)."""
         return ModelApiAddress.from_api(self._request("GET", "/me/model-api"))
 
+    # ------------------------------------------------------------------ endpoints
+
+    def list_endpoints(self) -> list[Endpoint]:
+        """Your team's Endpoints: stable HTTPS addresses for your own server on port 8000."""
+        return [Endpoint.from_api(e) for e in self._request("GET", "/endpoints")]
+
+    def get_endpoint(self, endpoint: Endpoint | str) -> Endpoint:
+        return Endpoint.from_api(self._request("GET", f"/endpoints/{_endpoint_id(endpoint)}"))
+
+    def get_or_create_endpoint(self, name: str) -> Endpoint:
+        """The Endpoint with this name, created if there's none (owners and admins create)."""
+        for e in self.list_endpoints():
+            if e.name == name:
+                return e
+        return self.create_endpoint(name)
+
+    def create_endpoint(self, name: str) -> Endpoint:
+        """A new Endpoint (owners and admins), e.g. one per customer you serve. Its `key` is set on the result."""
+        return Endpoint.from_api(self._request("POST", "/endpoints", json={"name": name}))
+
+    def rename_endpoint(self, endpoint: Endpoint | str, name: str) -> Endpoint:
+        return Endpoint.from_api(self._request("PATCH", f"/endpoints/{_endpoint_id(endpoint)}", json={"name": name}))
+
+    def endpoint_key(self, endpoint: Endpoint | str) -> str:
+        """The Endpoint's key (owners and admins; needs a "launch and stop" API key)."""
+        return self._request("GET", f"/endpoints/{_endpoint_id(endpoint)}/key")["key"]
+
+    def rotate_endpoint_key(self, endpoint: Endpoint | str) -> str:
+        """A new key for the Endpoint; the old one stops working within seconds. Running machines aren't touched."""
+        return self._request("POST", f"/endpoints/{_endpoint_id(endpoint)}/key")["key"]
+
+    def delete_endpoint(self, endpoint: Endpoint | str) -> None:
+        """Its address stops answering within seconds; machines launched for it keep running."""
+        self._request("DELETE", f"/endpoints/{_endpoint_id(endpoint)}")
+
     # ------------------------------------------------------------------ usage and receipts
 
     def usage(self, days: int = 30) -> Usage:
@@ -321,6 +361,10 @@ class Client:
 
     def delete_ssh_key(self, key: SshKey | str) -> None:
         self._request("DELETE", f"/ssh-keys/{key.id if isinstance(key, SshKey) else key}")
+
+
+def _endpoint_id(endpoint: Endpoint | str) -> str:
+    return endpoint.id if isinstance(endpoint, Endpoint) else str(endpoint)
 
 
 def _schedule_body(name, project, app, gpus, timezone, windows, model, region, skip_dates, lead_minutes) -> dict:

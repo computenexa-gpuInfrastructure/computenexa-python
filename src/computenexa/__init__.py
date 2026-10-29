@@ -9,7 +9,7 @@
 Guide: https://app.computenexa.com/help/api · Reference: https://app.computenexa.com/help/api/reference
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .client import Client
 from .errors import (
@@ -33,6 +33,7 @@ from .models import (
     Account,
     App,
     Catalog,
+    Endpoint,
     Gpu,
     Instance,
     LedgerEntry,
@@ -56,6 +57,7 @@ __all__ = [
     "Client",
     "ComputeNexaError",
     "ConflictError",
+    "Endpoint",
     "Gpu",
     "GpuLimitReachedError",
     "Instance",

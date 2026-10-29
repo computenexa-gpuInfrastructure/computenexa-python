@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Endpoints: a stable HTTPS address for your own server on a machine's port 8000, with its own key, e.g. one per
+  customer you serve. `list_endpoints`, `get_endpoint`, `create_endpoint`, `get_or_create_endpoint`,
+  `rename_endpoint`, `endpoint_key`, `rotate_endpoint_key`, `delete_endpoint`; `launch(..., endpoint=...)`.
+- `Instance.endpoint_url` (the machine's own address for your server, with `api_key()`) and `Instance.endpoint_name`.
+- `cnx endpoints` (ls, add, key, rm) and `cnx launch --endpoint NAME`.
+
 ## 0.2.0
 
 - `cnx`, a command-line tool: whoami, gpus, apps, launch (asks before spending; `--yes` for scripts), ls, show, ssh,

@@ -115,8 +115,9 @@ def cmd_launch(cnx: Client, args) -> None:
         confirm(args, f"Launch {gpu.name} x{args.count} with {args.app} for {minutes} min: about {money(cost)} "
                       "now (unused time refunded)?")
     project = find_project(cnx, args.project, create=args.create_project) if args.project else None
+    endpoint = find_endpoint(cnx, args.endpoint) if args.endpoint else None
     machine = cnx.launch(gpu.slug, app=args.app, minutes=minutes, gpu_count=args.count, region=args.region,
-                         label=args.label, model=args.model, project=project)
+                         label=args.label, model=args.model, project=project, endpoint=endpoint)
     if not args.json:
         print(f"Launched {machine.id}: charged {money(machine.charged_cents)}")
     if args.wait:
@@ -124,6 +125,7 @@ def cmd_launch(cnx: Client, args) -> None:
             lambda m: print(f"  {m.state}{': ' + m.startup_progress if m.startup_progress else ''}", flush=True)))
     out(args, machine, lambda m: print(
         f"{m.id} is {m.state}" + (f". Connect: {m.ssh_command}" if m.ssh_command else "")
+        + (f". Your server on port 8000: {m.endpoint_url}" if m.endpoint_url else "")
         + ("" if m.is_running else f". Check: cnx show {m.id}")))
 
 
@@ -195,6 +197,33 @@ def cmd_keys(cnx: Client, args) -> None:
     else:
         ks = cnx.list_ssh_keys()
         out(args, ks, lambda ks: table([[k.name, k.fingerprint, k.id] for k in ks], ["name", "fingerprint", "id"]))
+
+
+def find_endpoint(cnx: Client, name: str):
+    for e in cnx.list_endpoints():
+        if name in (e.name, e.id, e.handle):
+            return e
+    raise ComputeNexaError(f"No endpoint called {name!r} (cnx endpoints lists them).")
+
+
+def cmd_endpoints(cnx: Client, args) -> None:
+    if args.action == "add":
+        e = cnx.create_endpoint(args.name)
+        out(args, e, lambda e: print(f"Created {e.name}: {e.url}\nKey: {e.key}\n"
+                                     f"Launch for it: cnx launch <gpu> --app basic --endpoint {e.name!r}"))
+    elif args.action == "key":
+        e = find_endpoint(cnx, args.name)
+        key = cnx.endpoint_key(e)
+        out(args, {"endpoint": e.id, "key": key}, lambda _: print(key))
+    elif args.action == "rm":
+        e = find_endpoint(cnx, args.name)
+        confirm(args, f"Delete endpoint {e.name}? Its address stops answering; machines keep running.")
+        cnx.delete_endpoint(e)
+        out(args, {"deleted": e.id}, lambda _: print(f"Deleted {e.name}"))
+    else:
+        es = cnx.list_endpoints()
+        out(args, es, lambda es: table([[e.name, e.url, e.instance or "-", e.id] for e in es],
+                                       ["name", "address", "serving", "id"]))
 
 
 def cmd_usage(cnx: Client, args) -> None:
@@ -269,6 +298,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--region", default="any", choices=["any", "us", "ca"])
     s.add_argument("--project", help="project name or id: restored into ~/work and saved back")
     s.add_argument("--create-project", action="store_true", help="create --project if it doesn't exist")
+    s.add_argument("--endpoint", help="endpoint name or id: its address reaches your server on this machine's port 8000")
     s.add_argument("--label", help="a name for the machine")
     s.add_argument("--model", help="model for chat, imagegen, modelapi or voice (default: recommended)")
     s.add_argument("--no-wait", dest="wait", action="store_false", help="return without waiting until running")
@@ -293,6 +323,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("action", nargs="?", default="ls", choices=["ls", "add"])
     s.add_argument("name", nargs="?")
     s.add_argument("file", nargs="?", default="~/.ssh/id_ed25519.pub", help="public key file")
+    s = add("endpoints", cmd_endpoints, "list, add, show the key of, or delete endpoints (your server on port 8000)")
+    s.add_argument("action", nargs="?", default="ls", choices=["ls", "add", "key", "rm"])
+    s.add_argument("name", nargs="?", help="endpoint name or id")
     s = add("usage", cmd_usage, "GPU use and spending")
     s.add_argument("--days", type=int, default=30)
     s = add("receipts", cmd_receipts, "finished sessions and their cost")
@@ -306,7 +339,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    needs_name = {"projects": ("create", "rm"), "keys": ("add",), "schedules": ("pause", "resume", "rm")}
+    needs_name = {"projects": ("create", "rm"), "keys": ("add",), "schedules": ("pause", "resume", "rm"),
+                  "endpoints": ("add", "key", "rm")}
     if args.command in needs_name and args.action in needs_name[args.command] and not args.name:
         print(f"cnx {args.command} {args.action}: give a name.", file=sys.stderr)
         return 2

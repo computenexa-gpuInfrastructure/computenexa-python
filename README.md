@@ -114,6 +114,23 @@ print(machine.api_base_url, machine.api_key())    # a standard chat-completions 
 print(cnx.model_api().base_url)                   # your team's stable address, the same on every launch
 ```
 
+## Endpoints: your own server over HTTPS
+
+Run your server on a machine's port 8000 (vLLM, SGLang, FastAPI…) and reach it at a stable HTTPS address with its own
+key, e.g. one Endpoint per customer you serve. The address points at the newest running machine launched for it, so
+it stays the same when you replace the machine.
+
+```python
+endpoint = cnx.get_or_create_endpoint("Acme Bank")         # owners and admins create; endpoint.key is set on create
+machine = cnx.launch("h100-80gb", app="basic", hours=4, endpoint=endpoint)
+machine.wait_until_running()
+print(endpoint.url, cnx.endpoint_key(endpoint))           # callers send Authorization: Bearer <endpoint key>
+print(machine.endpoint_url, machine.api_key())            # this machine's own address and key
+```
+
+From the terminal: `cnx endpoints`, `cnx endpoints add "Acme Bank"`, `cnx endpoints key "Acme Bank"`,
+`cnx launch h100-80gb --app basic --hours 4 --endpoint "Acme Bank"`.
+
 Other machine helpers: `machine.app_url("chat")` (a one-time signed-in link to a browser app) and
 `machine.save_project()` (save the project now).
 
