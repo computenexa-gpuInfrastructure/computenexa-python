@@ -197,7 +197,16 @@ class Instance:
     end_reason: str | None
     startup_progress: str | None
     api_base_url: str | None      # Model API and Voice Agent machines, while running: their API address
-    raw: dict = field(repr=False)
+    # Your own server on the machine's port 8000 (Basic, Data Science, Private Chat, Image Generation), while running:
+    # its HTTPS address with the machine's key (api_key()); and the named Endpoint it serves, if launched for one.
+    endpoint_url: str | None = None
+    endpoint_name: str | None = None
+    # Keep running: renews this many hours at a time (None = off); when the next block is bought; and whether the
+    # last renewal couldn't be paid (it then stops at expires_at unless the balance is topped up).
+    keep_running_hours: int | None = None
+    next_renewal_at: datetime | None = None
+    renew_failed: bool = False
+    raw: dict = field(default_factory=dict, repr=False)
     _client: Client | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -217,7 +226,10 @@ class Instance:
                    expires_at=_time(d.get("expires_at")), time_left_seconds=d.get("time_left_seconds"),
                    charged_cents=d.get("charged_cents", 0), refunded_cents=d.get("refunded_cents", 0),
                    cost_so_far_cents=d.get("cost_so_far_cents", 0), end_reason=d.get("end_reason"),
-                   startup_progress=d.get("startup_progress"), api_base_url=d.get("api_base_url"), raw=d,
+                   startup_progress=d.get("startup_progress"), api_base_url=d.get("api_base_url"),
+                   endpoint_url=d.get("endpoint_url"), endpoint_name=(d.get("endpoint") or {}).get("name"),
+                   keep_running_hours=d.get("keep_running_hours"), next_renewal_at=_time(d.get("next_renewal_at")),
+                   renew_failed=bool(d.get("renew_failed", False)), raw=d,
                    _client=client)
 
     def _update(self, other: Instance) -> Instance:
@@ -258,12 +270,17 @@ class Instance:
         """Add time at the price it launched with."""
         return self._update(self._c().extend_instance(self.id, minutes=minutes, hours=hours))
 
+    def keep_running(self, hours: int | None) -> Instance:
+        """Renew `hours` at a time from the team's balance until stopped; None turns it off."""
+        return self._update(self._c().set_keep_running(self.id, hours))
+
     def stop(self) -> Instance:
         """End it now: stop if running, cancel if still starting. Unused time is refunded."""
         return self._update(self._c().stop_instance(self.id))
 
     def api_key(self) -> str:
-        """The machine's own Model API (or Voice Agent API) key, for `api_base_url`. Only for machines you launched."""
+        """The machine's own key: for its Model API (or Voice Agent API) at `api_base_url`, or its own Endpoint at
+        `endpoint_url`. Only for machines you launched."""
         return self._c().get_instance_api_key(self.id)
 
     def app_url(self, app: str) -> str:
@@ -408,6 +425,27 @@ class Usage:
                    topups_cents=d["topups_cents"], sessions=d["sessions"], gpu_hours=d["gpu_hours"],
                    by_gpu=list(d.get("by_gpu") or []), by_image=list(d.get("by_image") or []),
                    daily=list(d.get("daily") or []), projects=list(d.get("projects") or []), raw=d)
+
+
+@dataclass
+class Endpoint:
+    """A stable HTTPS address for your own server on port 8000, with its own key, e.g. one per customer you serve.
+    It points at the newest running machine launched for it (launch(..., endpoint=...)); the address and key stay the
+    same when you replace the machine."""
+
+    id: str
+    name: str
+    handle: str                   # e-4f1c9a2b
+    url: str                      # https://e-4f1c9a2b-endpoint.computenexa-apps.com
+    instance: str | None          # the machine it points at now, if any
+    created_at: datetime | None
+    key: str | None = None        # only on create_endpoint(); else Client.endpoint_key()
+    raw: dict = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_api(cls, d: dict) -> Endpoint:
+        return cls(id=str(d["id"]), name=d["name"], handle=d["handle"], url=d["url"], instance=d.get("instance"),
+                   created_at=_time(d.get("created_at")), key=d.get("key"), raw=d)
 
 
 @dataclass
