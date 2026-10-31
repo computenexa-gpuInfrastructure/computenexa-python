@@ -136,7 +136,7 @@ class Client:
     def launch(self, gpu: str, *, app: str | None = None, image: str | None = None, minutes: int | None = None,
                hours: float | None = None, gpu_count: int = 1, region: str = "any", label: str | None = None,
                model: str | None = None, project: Project | str | None = None,
-               endpoint: Endpoint | str | None = None) -> Instance:
+               endpoint: Endpoint | str | None = None, keep_running: int | None = None) -> Instance:
         """Launch a GPU. It's charged now for the booked time; unused time is refunded when it stops early, all of
         it if it can't start.
 
@@ -145,6 +145,8 @@ class Client:
         `app`: "basic", "datascience", "chat", "imagegen", "modelapi" or "voice" (or `image=` an exact image slug).
         `model`: for apps that take one; left out = the recommended model for this GPU.
         `endpoint`: serve this Endpoint (Basic, Data Science, Private Chat or Image Generation; your server on 8000).
+        `keep_running`: renew this many hours at a time from your team's balance until you stop it (at the price it
+        launched with); left out = it stops when the booked time ends.
         """
         if (app is None) == (image is None):
             raise ValueError("Give exactly one of app=... or image=...")
@@ -162,6 +164,8 @@ class Client:
             body["project_id"] = project.id if isinstance(project, Project) else str(project)
         if endpoint is not None:
             body["endpoint_id"] = endpoint.id if isinstance(endpoint, Endpoint) else str(endpoint)
+        if keep_running is not None:
+            body["keep_running_hours"] = keep_running
         return Instance.from_api(self._request("POST", "/instances", json=body), self)
 
     def get_instance(self, instance_id: str) -> Instance:
@@ -180,6 +184,12 @@ class Client:
     def extend_instance(self, instance_id: str, *, minutes: int | None = None, hours: float | None = None) -> Instance:
         return Instance.from_api(self._request("POST", f"/instances/{instance_id}/extend",
                                                json={"minutes": _minutes(minutes, hours)}), self)
+
+    def set_keep_running(self, instance_id: str, hours: int | None) -> Instance:
+        """Keep running: renew `hours` at a time from the team's balance until stopped; None turns it off (it then
+        stops when its paid time ends)."""
+        return Instance.from_api(self._request("PUT", f"/instances/{instance_id}/keep-running",
+                                               json={"hours": hours}), self)
 
     def stop_instance(self, instance_id: str) -> Instance:
         """End it now: stop if running, cancel if still starting (full refund). An ended one is returned as is."""

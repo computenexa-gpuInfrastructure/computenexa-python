@@ -201,6 +201,11 @@ class Instance:
     # its HTTPS address with the machine's key (api_key()); and the named Endpoint it serves, if launched for one.
     endpoint_url: str | None = None
     endpoint_name: str | None = None
+    # Keep running: renews this many hours at a time (None = off); when the next block is bought; and whether the
+    # last renewal couldn't be paid (it then stops at expires_at unless the balance is topped up).
+    keep_running_hours: int | None = None
+    next_renewal_at: datetime | None = None
+    renew_failed: bool = False
     raw: dict = field(default_factory=dict, repr=False)
     _client: Client | None = field(default=None, repr=False, compare=False)
 
@@ -222,7 +227,9 @@ class Instance:
                    charged_cents=d.get("charged_cents", 0), refunded_cents=d.get("refunded_cents", 0),
                    cost_so_far_cents=d.get("cost_so_far_cents", 0), end_reason=d.get("end_reason"),
                    startup_progress=d.get("startup_progress"), api_base_url=d.get("api_base_url"),
-                   endpoint_url=d.get("endpoint_url"), endpoint_name=(d.get("endpoint") or {}).get("name"), raw=d,
+                   endpoint_url=d.get("endpoint_url"), endpoint_name=(d.get("endpoint") or {}).get("name"),
+                   keep_running_hours=d.get("keep_running_hours"), next_renewal_at=_time(d.get("next_renewal_at")),
+                   renew_failed=bool(d.get("renew_failed", False)), raw=d,
                    _client=client)
 
     def _update(self, other: Instance) -> Instance:
@@ -262,6 +269,10 @@ class Instance:
     def extend(self, minutes: int | None = None, *, hours: float | None = None) -> Instance:
         """Add time at the price it launched with."""
         return self._update(self._c().extend_instance(self.id, minutes=minutes, hours=hours))
+
+    def keep_running(self, hours: int | None) -> Instance:
+        """Renew `hours` at a time from the team's balance until stopped; None turns it off."""
+        return self._update(self._c().set_keep_running(self.id, hours))
 
     def stop(self) -> Instance:
         """End it now: stop if running, cancel if still starting. Unused time is refunded."""

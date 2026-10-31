@@ -117,7 +117,8 @@ def cmd_launch(cnx: Client, args) -> None:
     project = find_project(cnx, args.project, create=args.create_project) if args.project else None
     endpoint = find_endpoint(cnx, args.endpoint) if args.endpoint else None
     machine = cnx.launch(gpu.slug, app=args.app, minutes=minutes, gpu_count=args.count, region=args.region,
-                         label=args.label, model=args.model, project=project, endpoint=endpoint)
+                         label=args.label, model=args.model, project=project, endpoint=endpoint,
+                         keep_running=args.keep_running)
     if not args.json:
         print(f"Launched {machine.id}: charged {money(machine.charged_cents)}")
     if args.wait:
@@ -144,6 +145,9 @@ def cmd_show(cnx: Client, args) -> None:
                      ("label", m.label), ("ssh", m.ssh_command), ("api", m.api_base_url), ("ends", when(m.expires_at)),
                      ("price", money(m.price_per_hour_cents) + "/h"), ("charged", money(m.charged_cents)),
                      ("refunded", money(m.refunded_cents)), ("cost so far", money(m.cost_so_far_cents)),
+                     ("keep running", f"every {m.keep_running_hours} h, next {when(m.next_renewal_at)}"
+                      if m.keep_running_hours else None),
+                     ("renewal", "couldn't be paid: top up or it stops at the end" if m.renew_failed else None),
                      ("progress", m.startup_progress), ("ended", m.end_reason)]:
             if v not in (None, "", "-"):
                 print(f"{k:>12}  {v}")
@@ -162,6 +166,14 @@ def cmd_ssh(cnx: Client, args) -> None:
 def cmd_extend(cnx: Client, args) -> None:
     m = cnx.extend_instance(args.id, minutes=args.minutes, hours=args.hours)
     out(args, m, lambda m: print(f"{m.id} now ends {when(m.expires_at)} (charged {money(m.charged_cents)} in total)"))
+
+
+def cmd_keep_running(cnx: Client, args) -> None:
+    hours = None if args.hours == "off" else int(args.hours)
+    m = cnx.set_keep_running(args.id, hours)
+    out(args, m, lambda m: print(
+        f"{m.id}: keep running every {m.keep_running_hours} h, next renewal {when(m.next_renewal_at)}"
+        if m.keep_running_hours else f"{m.id}: keep running off; it ends {when(m.expires_at)}"))
 
 
 def cmd_stop(cnx: Client, args) -> None:
@@ -300,6 +312,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--create-project", action="store_true", help="create --project if it doesn't exist")
     s.add_argument("--endpoint", help="endpoint name or id: its address reaches your server on this machine's port 8000")
     s.add_argument("--label", help="a name for the machine")
+    s.add_argument("--keep-running", type=int, metavar="HOURS",
+                   help="renew HOURS at a time from your team's balance until you stop it")
     s.add_argument("--model", help="model for chat, imagegen, modelapi or voice (default: recommended)")
     s.add_argument("--no-wait", dest="wait", action="store_false", help="return without waiting until running")
     s.add_argument("--timeout", type=float, default=900, help="seconds to wait (default 900)")
@@ -314,6 +328,9 @@ def parser() -> argparse.ArgumentParser:
     s = add("extend", cmd_extend, "add time to a running machine")
     s.add_argument("id")
     duration(s)
+    s = add("keep-running", cmd_keep_running, "renew a machine automatically from the team's balance, or turn it off")
+    s.add_argument("id")
+    s.add_argument("hours", help="hours per renewal, or 'off'")
     s = add("stop", cmd_stop, "stop machines (unused time refunded)")
     s.add_argument("ids", nargs="+", metavar="id")
     s = add("projects", cmd_projects, "list, create or delete projects")

@@ -126,3 +126,62 @@ def test_cli_launch_for_an_endpoint(run, api):
     assert code == 0, out
     sent = next(b for m, p, b in api.calls if (m, p) == ("POST", "/instances"))
     assert sent["endpoint_id"] == "e1"
+
+
+# ---------------------------------------------------------------- Keep running
+
+
+class FakeApiKeep(FakeApi3):
+    def handler(self, request):
+        path = request.url.path.removeprefix("/v1")
+        body = json.loads(request.content) if request.content else None
+        if request.method == "POST" and path == "/instances":
+            response = super().handler(request)
+            iid = response.json()["id"]
+            self.instances[iid]["keep_running_hours"] = body.get("keep_running_hours")
+            return httpx.Response(201, json=self._out(iid))
+        if request.method == "PUT" and path.endswith("/keep-running"):
+            self.calls.append((request.method, path, body))
+            iid = path.split("/")[2]
+            self.instances[iid].update(keep_running_hours=body["hours"],
+                                       next_renewal_at="2026-11-01T06:00:00Z" if body["hours"] else None)
+            return httpx.Response(200, json=self._out(iid))
+        return super().handler(request)
+
+
+@pytest.fixture
+def keep_api(monkeypatch):
+    monkeypatch.setattr(computenexa.client.time, "sleep", lambda s: None)
+    monkeypatch.setattr(computenexa.models.time, "sleep", lambda s: None)
+    return FakeApiKeep()
+
+
+def keep_client(api):
+    return Client(KEY, base_url="https://api.test/v1", http_client=httpx.Client(transport=httpx.MockTransport(api.handler)))
+
+
+def test_keep_running_on_launch_and_later(keep_api):
+    cnx = keep_client(keep_api)
+    machine = cnx.launch("rtx-4090", app="basic", hours=1, keep_running=24)
+    assert machine.keep_running_hours == 24 and machine.renew_failed is False
+    machine.keep_running(6)
+    assert machine.keep_running_hours == 6 and machine.next_renewal_at is not None
+    assert keep_api.calls[-1] == ("PUT", f"/instances/{machine.id}/keep-running", {"hours": 6})
+    machine.keep_running(None)
+    assert machine.keep_running_hours is None and machine.next_renewal_at is None
+    plain = cnx.launch("rtx-4090", app="basic", hours=1)
+    assert plain.keep_running_hours is None  # not sent when left out
+
+
+def test_cli_keep_running(keep_api, monkeypatch, capsys):
+    monkeypatch.setenv("CNX_API_KEY", KEY)
+    monkeypatch.setattr(cli_module, "Client", lambda: keep_client(keep_api))
+    assert cli_module.main(["launch", "rtx-4090", "--app", "basic", "--hours", "1", "--keep-running", "12",
+                            "--no-wait", "--yes"]) == 0
+    (iid,) = keep_api.instances
+    assert keep_api.instances[iid]["keep_running_hours"] == 12
+    capsys.readouterr()
+    assert cli_module.main(["keep-running", iid, "off"]) == 0
+    assert "keep running off" in capsys.readouterr().out
+    assert cli_module.main(["keep-running", iid, "8"]) == 0
+    assert "every 8 h" in capsys.readouterr().out

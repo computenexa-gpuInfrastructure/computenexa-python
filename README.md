@@ -131,6 +131,21 @@ print(machine.endpoint_url, machine.api_key())            # this machine's own a
 From the terminal: `cnx endpoints`, `cnx endpoints add "Acme Bank"`, `cnx endpoints key "Acme Bank"`,
 `cnx launch h100-80gb --app basic --hours 4 --endpoint "Acme Bank"`.
 
+## Keep running: machines that renew themselves
+
+For servers that must stay up, a machine can renew itself from your team's balance, a block of hours at a time, at
+the price it launched with, until you stop it. If the balance can't pay the next hour, owners and admins are told
+and it stops when its paid time ends.
+
+```python
+machine = cnx.launch("l40s", app="basic", hours=24, keep_running=24, endpoint=endpoint)
+print(machine.keep_running_hours, machine.next_renewal_at, machine.renew_failed)
+machine.keep_running(6)       # renew 6 hours at a time
+machine.keep_running(None)    # off: it stops when its paid time ends
+```
+
+From the terminal: `cnx launch l40s --app basic --hours 24 --keep-running 24`, `cnx keep-running cnx-7f3a9c off`.
+
 Other machine helpers: `machine.app_url("chat")` (a one-time signed-in link to a browser app) and
 `machine.save_project()` (save the project now).
 

@@ -7,6 +7,9 @@
   `rename_endpoint`, `endpoint_key`, `rotate_endpoint_key`, `delete_endpoint`; `launch(..., endpoint=...)`.
 - `Instance.endpoint_url` (the machine's own address for your server, with `api_key()`) and `Instance.endpoint_name`.
 - `cnx endpoints` (ls, add, key, rm) and `cnx launch --endpoint NAME`.
+- Keep running: `launch(..., keep_running=HOURS)` renews the machine HOURS at a time from your team's balance until
+  you stop it; `machine.keep_running(hours | None)` / `set_keep_running`; `Instance.keep_running_hours`,
+  `next_renewal_at`, `renew_failed`. `cnx launch --keep-running HOURS` and `cnx keep-running ID HOURS|off`.
 
 ## 0.2.0
 
